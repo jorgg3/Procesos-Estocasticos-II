@@ -1,0 +1,175 @@
+---
+title: "Tarea de Programación II"
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: github_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# librerías
+library(ggplot2)
+```
+
+#  Construcción y simulación de cadenas de Markov en tiempo continuo
+
+Una cadena de Markov en tiempo continuo (CTMC) puede construirse a partir de una cadena de Markov en tiempo discreto junto con tiempos de permanencia aleatorios.
+
+## Construcción formal
+
+Sea $(Y_n)_{n \ge 0}$ una cadena de Markov con probabilidades de transición $r(i,j)$ y sea $\lambda(i) > 0$ la tasa de salida del estado $i$.
+
+**Paso 1: tiempos de permanencia.** Sea $(\tau_n)_{n \ge 0}$ una sucesión de variables aleatorias independientes tales que 
+$$ \tau_n \sim Exp(1) $$
+Definimos el tiempo que el proceso permanece en el estado $Y_n$ como 
+$$ t_{n+1} = \frac{\tau_n}{\lambda(Y_n)} $$
+
+**Paso 2: tiempos acumulados.** Definimos los tiempos de salto acumulados como 
+$$ T_0 = 0 $$
+$$ T_n = t_1 + t_2 + \dots + t_n $$
+
+**Paso 3: definición del proceso continuo.** Definimos el proceso en tiempo continuo $(X(t))_{t \ge 0}$ mediante 
+$$ X(t) = Y_n \quad \text{si } T_n \le t < T_{n+1} $$
+Es decir, el proceso permanece en el estado $Y_n$ durante el intervalo de tiempo de longitud $t_{n+1}$, y luego salta al siguiente estado $Y_{n+1}$.
+
+## Versión equivalente
+
+De manera equivalente, en el estado $i$ se puede generar directamente el tiempo de permanencia como 
+$$ t \sim Exp(\lambda(i)) $$
+Ambas construcciones son equivalentes porque si $\tau \sim Exp(1)$, entonces 
+$$ \frac{\tau}{\lambda} \sim Exp(\lambda) $$
+
+## Algoritmo de simulación
+
+Para simular una trayectoria de una CTMC:
+
+1. Inicializar: 
+   $$ T_0 = 0, \quad Y_0 = x_0 $$
+2. Para $n = 0, 1, 2, \dots$ repetir:
+   (a) Calcular la tasa total de salida del estado actual: 
+       $$ \lambda(Y_n) = \sum_{j \neq Y_n} q(Y_n, j) $$
+   (b) Generar el tiempo de permanencia:
+       - Versión 1: $\tau_n \sim Exp(1)$ y $t_{n+1} = \tau_n / \lambda(Y_n)$
+       - Versión 2: $t_{n+1} \sim Exp(\lambda(Y_n))$
+   (c) Actualizar el tiempo: 
+       $$ T_{n+1} = T_n + t_{n+1} $$
+   (d) Elegir el siguiente estado $Y_{n+1}$ con probabilidad: 
+       $$ \mathbb{P}(Y_{n+1} = j \mid Y_n) = \frac{q(Y_n, j)}{\lambda(Y_n)} $$
+3. Definir el proceso continuo mediante: 
+   $$ X(t) = Y_n \quad \text{para } T_n \le t < T_{n+1} $$
+
+---
+```{r}
+# Implementamos un algoritmo para cualquier modelo M/M/k
+CMTC <- function(lambda, mu, k, T_max, x0 = 0) {
+  # Lo hacemos como función para poder simular diferentes modelos de colas (M/M/1, M/M/5, M/M/inf)
+  Y_n <- c(x0)
+  t_n <- c(0) # Aquí los parametros de inicio
+  T_n <- c(0)
+  
+  # repetiremos el siguiente bucle hasta alcanzar el tiempo máximo T_max
+  while(tail(T_n, 1) < T_max) {
+    estado_actual <- tail(Y_n, 1) # estado actual del proceso
+    
+    # aquí calculamos la tasa total de salida
+    tasa_salida <- lambda + mu * min(estado_actual, k)
+    
+    # usaremos la versión 2 para generar el tiempo de permanencia directamente con la tasa 
+    t_next <- rexp(1, rate = tasa_salida) # tiempo de permanencia en el estado actual
+    
+    # actualizamos el tiempo
+    T_next <- tail(T_n, 1) + t_next
+    
+    # eligiremos el siguiente estado con la probabilidad correspondiente
+    prob_llegada <- lambda / tasa_salida
+    if (runif(1) < prob_llegada) {
+      next_Y <- estado_actual + 1
+    } else {
+      next_Y <- estado_actual - 1 # marcamos al condición de decisión
+    }
+    
+    # guardamos los valores que necesitamos para graficar la trayectoria
+    Y_n <- c(Y_n, next_Y)
+    t_n <- c(t_n, t_next)
+    T_n <- c(T_n, T_next)
+  }
+  
+  ### para facilitar la graficación, creamos un data frame con los tiempos acumulados y los estados correspondientes
+  datos_trayectoria <- data.frame(Tiempo_Tn = T_n, Estado_Yn = Y_n)
+  return(datos_trayectoria) #Y de hecho, esto es lo que regresa la función
+}
+```
+
+# Ejemplos: modelos de colas
+
+Consideramos procesos con espacio de estados $\{0, 1, 2, \dots\}$ donde $X(t)$ representa el número de clientes en el sistema.
+
+## Modelo M/M/1
+
+* **Llegadas:** $n \to n+1$ con tasa $\lambda$
+* **Salidas:** $n \to n-1$ con tasa $\mu$ ($n \ge 1$)
+* **Tasa total:**
+$$ \lambda(n) = \begin{cases} \lambda, & n=0 \\ \lambda+\mu, & n \ge 1 \end{cases} $$
+```{r}
+set.seed(236) # reproducibilidad
+data_sim_1 <- CMTC(lambda = 2, mu = 3, k = 1, T_max = 50)
+
+ggplot(data_sim_1, aes(x = Tiempo_Tn, y = Estado_Yn)) +
+  geom_step(direction = "hv", color = "orange", linewidth = 0.8) +
+  theme_minimal() +
+  labs(title = "Trayectoria de un modelo M/M/1",
+       subtitle = expression(paste(lambda, " = 2, ", mu, " = 3")),
+       x = "Tiempo (t)",
+       y = "Número de clientes X(t)")
+```
+
+## Modelo M/M/5
+
+* **Llegadas:** tasa $\lambda$
+* **Salidas:** $n \to n-1$ con tasa $\mu \min(n, 5)$
+* **Tasa total:**
+$$ \lambda(n) = \lambda + \mu \min(n, 5) $$
+```{r}
+set.seed(236)
+data_sim_2 <- CMTC(lambda = 10, mu = 3, k = 5, T_max = 50)
+
+ggplot(data_sim_2, aes(x = Tiempo_Tn, y = Estado_Yn)) +
+  geom_step(direction = "hv", color = "darkblue", linewidth = 0.8) +
+  theme_minimal() +
+  labs(title = "Trayectoria de un modelo M/M/5",
+       subtitle = expression(paste(lambda, " = 10, ", mu, " = 3")),
+       x = "Tiempo (t)",
+       y = "Número de clientes X(t)")
+```
+
+## Modelo M/M/$\infty$
+
+* **Llegadas:** tasa $\lambda$
+* **Salidas:** $n \to n-1$ con tasa $n\mu$
+* **Tasa total:**
+$$ \lambda(n) = \lambda + n\mu $$
+```{r}
+set.seed(236)
+# notemos que, al usar k = Inf, min(estado_actual, Inf) siempre es igual a estado_actual.
+data_sim_3 <- CMTC(lambda = 15, mu = 2, k = Inf, T_max = 50)
+
+ggplot(data_sim_3, aes(x = Tiempo_Tn, y = Estado_Yn)) +
+  geom_step(direction = "hv", color = "orange", linewidth = 0.8) +
+  theme_minimal() +
+  labs(title = expression("Trayectoria de un modelo M/M/" * infinity),
+       subtitle = expression(paste(lambda, " = 15, ", mu, " = 2")),
+       x = "Tiempo (t)",
+       y = "Número de clientes X(t)")
+```
+
+
+
+
+------------------------------------------------------------------------
+
+## Referencias
+
+- Rincón, L. (2012). *Introducción a los procesos estocásticos*. Ciudad
+  de México: Facultad de Ciencias, UNAM.
+  
+-  Richard Durrett and R Durrett. Essentials of stochastic processes, vol
+ume 1. Springer, 1999.
