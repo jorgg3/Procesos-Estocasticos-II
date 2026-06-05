@@ -1,0 +1,576 @@
+Tarea de Programación III y IV
+================
+José Jorge Martínez de la Cruz
+2026-06-04
+
+# Movimiento Browniano
+
+Se simula una caminata aleatoria simple y se construye también una
+versión reescalada. La idea es observar que, cuando el número de pasos
+aumenta, la caminata aleatoria reescalada se parece cada vez más a una
+trayectoria de movimiento Browniano estándar.
+
+Sea $(\xi_i)_{i \geq 1}$ una sucesión de variables aleatorias
+independientes e idénticamente distribuidas tales que
+
+$$
+\mathbb{P}(\xi_i = 1) = \mathbb{P}(\xi_i = -1) = \frac{1}{2}.
+$$
+
+Definimos la caminata aleatoria simple por
+
+$$
+S_k = \sum_{i=1}^k \xi_i, \qquad S_0 = 0.
+$$
+
+Para cada $n \in \mathbb{N}$, definimos el proceso reescalado e
+interpolado linealmente por
+
+$$
+B_t^{(n)} = \frac{1}{\sqrt{n}}S_{\lfloor nt \rfloor} + \frac{nt - \lfloor nt \rfloor}{\sqrt{n}}\xi_{\lfloor nt \rfloor + 1}, \qquad t \in [0,1].
+$$
+
+La normalización por $\sqrt{n}$ es natural porque la varianza de $S_n$
+es igual a $n$. Por lo tanto, al dividir entre $\sqrt{n}$, el valor
+final queda en una escala comparable con una variable normal estándar.
+
+## Simulación de una caminata aleatoria simple
+
+Primero escribimos una función para simular una caminata aleatoria
+simple de longitud $n$. La función genera los incrementos
+$\xi_i \in \{-1,1\}$ y después calcula las sumas acumuladas.
+
+``` r
+# función para simular una caminata aleatoria simple
+simular_caminata <- function(n) {
+  xi <- sample(c(-1, 1), size = n, replace = TRUE, prob = c(0.5, 0.5))
+  S <- c(0, cumsum(xi))
+  datos <- data.frame(k = 0:n, S_k = S)
+  return(datos)
+}
+```
+
+Ahora simulamos caminatas para distintos valores de $n$.
+
+``` r
+set.seed(236)
+valores_n <- c(100, 500, 1000, 5000)
+
+lista_caminatas <- list()
+
+for (n in valores_n) {
+  datos_n <- simular_caminata(n)
+  datos_n$n <- n
+  lista_caminatas[[as.character(n)]] <- datos_n
+}
+
+datos_caminatas <- do.call(rbind, lista_caminatas)
+datos_caminatas$n <- factor(datos_caminatas$n)
+```
+
+``` r
+ggplot(datos_caminatas, aes(x = k, y = S_k)) +
+  geom_line(color = "darkblue", linewidth = 0.5) +
+  facet_wrap(~ n, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Caminatas aleatorias simples para distintos valores de n",
+       x = "Paso k",
+       y = expression(S[k]))
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+
+En las gráficas anteriores se observan trayectorias discretas. Conforme
+$n$ aumenta, hay más pasos y la trayectoria se vuelve más irregular,
+aunque todavía está escrita en la escala original de la caminata
+aleatoria.
+
+## Construcción del proceso reescalado
+
+Ahora implementamos la construcción de $B_t^{(n)}$. Para graficar la
+interpolación lineal, tomaremos una malla de tiempos en $[0,1]$ y
+evaluaremos ahí la fórmula anterior.
+
+``` r
+# función para simular el proceso reescalado e interpolado B_t^(n)
+simular_browniano_aprox <- function(n, malla_t = seq(0, 1, length.out = 1000)) {
+  xi <- sample(c(-1, 1), size = n, replace = TRUE, prob = c(0.5, 0.5))
+  S <- c(0, cumsum(xi))
+  
+  valores_B <- numeric(length(malla_t))
+  
+  for (j in seq_along(malla_t)) {
+    t <- malla_t[j]
+    nt <- n * t
+    parte_entera <- floor(nt)
+    parte_decimal <- nt - parte_entera
+    
+    # si t = 1, entonces parte_entera = n y ya no existe xi_{n+1}
+    if (parte_entera == n) {
+      valores_B[j] <- S[n + 1] / sqrt(n)
+    } else {
+      valores_B[j] <- S[parte_entera + 1] / sqrt(n) + 
+        parte_decimal * xi[parte_entera + 1] / sqrt(n)
+    }
+  }
+  
+  datos <- data.frame(t = malla_t, B_t = valores_B, n = n)
+  return(datos)
+}
+```
+
+Simulamos una trayectoria de $B_t^{(n)}$ para cada valor de $n$.
+
+``` r
+set.seed(236)
+lista_brownianos <- list()
+
+for (n in valores_n) {
+  datos_n <- simular_browniano_aprox(n)
+  lista_brownianos[[as.character(n)]] <- datos_n
+}
+
+datos_brownianos <- do.call(rbind, lista_brownianos)
+datos_brownianos$n <- factor(datos_brownianos$n)
+```
+
+``` r
+ggplot(datos_brownianos, aes(x = t, y = B_t)) +
+  geom_line(color = "orange", linewidth = 0.6) +
+  facet_wrap(~ n) +
+  theme_minimal() +
+  labs(title = expression("Procesos reescalados e interpolados " * B[t]^{(n)}),
+       x = "Tiempo t",
+       y = expression(B[t]^{(n)}))
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+Después del reescalamiento, todas las trayectorias viven en el intervalo
+de tiempo $[0,1]$. Lo importante ya no es el número absoluto de pasos,
+sino la forma de la trayectoria en esta escala continua. Visualmente,
+cuando $n$ aumenta, las trayectorias se ven cada vez menos como una
+caminata por saltos grandes y más como una trayectoria continua e
+irregular.
+
+## Trayectorias para distintos valores de n
+
+Para comparar mejor el comportamiento, simulamos varias trayectorias
+independientes para cada valor de $n$.
+
+``` r
+set.seed(236)
+num_trayectorias <- 8
+lista_varias <- list()
+contador <- 1
+
+for (n in valores_n) {
+  for (i in 1:num_trayectorias) {
+    datos_aux <- simular_browniano_aprox(n)
+    datos_aux$trayectoria <- i
+    lista_varias[[contador]] <- datos_aux
+    contador <- contador + 1
+  }
+}
+
+datos_varias <- do.call(rbind, lista_varias)
+datos_varias$n <- factor(datos_varias$n)
+datos_varias$trayectoria <- factor(datos_varias$trayectoria)
+```
+
+``` r
+ggplot(datos_varias, aes(x = t, y = B_t, group = trayectoria)) +
+  geom_line(alpha = 0.55, linewidth = 0.5) +
+  facet_wrap(~ n) +
+  theme_minimal() +
+  labs(title = expression("Varias trayectorias independientes de " * B[t]^{(n)}),
+       x = "Tiempo t",
+       y = expression(B[t]^{(n)}))
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
+Estas trayectorias muestran la variabilidad del proceso. Aunque cada
+trayectoria individual es distinta, todas oscilan alrededor de cero y
+tienen una escala semejante. Esto coincide con la idea de que el proceso
+límite debe tener incrementos centrados y varianza proporcional al
+tiempo.
+
+## Distribución de $B_1^{(n)}$
+
+Ahora fijamos $n = 5000$ y simulamos $M = 1000$ trayectorias
+independientes. Para cada trayectoria registramos solamente el valor
+final $B_1^{(n)}$.
+
+Como
+
+$$
+B_1^{(n)} = \frac{S_n}{\sqrt{n}},
+$$
+
+esperamos que, para $n$ grande, esta variable tenga una distribución
+cercana a $N(0,1)$ por el Teorema Central del Límite.
+
+``` r
+set.seed(236)
+n_grande <- 5000
+M <- 1000
+valores_finales <- numeric(M)
+
+for (m in 1:M) {
+  xi <- sample(c(-1, 1), size = n_grande, replace = TRUE, prob = c(0.5, 0.5))
+  S_n <- sum(xi)
+  valores_finales[m] <- S_n / sqrt(n_grande)
+}
+
+datos_finales <- data.frame(B_1 = valores_finales)
+```
+
+``` r
+ggplot(datos_finales, aes(x = B_1)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 35, fill = "gray80", color = "white") +
+  stat_function(fun = dnorm, args = list(mean = 0, sd = 1), linewidth = 1) +
+  theme_minimal() +
+  labs(title = expression("Histograma de " * B[1]^{(n)} * " con n = 5000"),
+       subtitle = "Comparación con la densidad de una normal estándar",
+       x = expression(B[1]^{(n)}),
+       y = "Densidad")
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
+El histograma se ajusta de manera bastante cercana a la densidad de una
+normal estándar. Esto es consistente con la aproximación de la caminata
+aleatoria reescalada al movimiento Browniano. En particular, el valor
+final $B_1^{(n)}$ se comporta aproximadamente como una variable
+$N(0,1)$.
+
+# Aplicaciones de SDE: métodos MCMC basados en dinámica de Langevin
+
+La ecuación diferencial estocástica de Langevin considerada es
+
+$$
+dX_t = \nabla \log p^\star(X_t)dt + \sqrt{2}\,dB_t.
+$$
+
+La idea es construir un proceso cuya distribución estacionaria sea la
+distribución objetivo $p^\star$. Para simularlo usaremos una
+discretización de Euler-Maruyama.
+
+## Distribución objetivo normal univariada
+
+Consideramos como distribución objetivo una normal univariada
+
+$$
+p^\star(x) = N(\mu, \sigma^2).
+$$
+
+Su densidad está dada por
+
+$$
+p^\star(x) = \frac{1}{\sqrt{2\pi\sigma^2}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right).
+$$
+
+Por lo tanto,
+
+$$
+\log p^\star(x) = -\frac{1}{2}\log(2\pi\sigma^2) - \frac{(x-\mu)^2}{2\sigma^2}.
+$$
+
+Derivando con respecto a $x$, obtenemos
+
+$$
+\nabla \log p^\star(x) = -\frac{x-\mu}{\sigma^2}.
+$$
+
+Es decir, el gradiente apunta hacia la media $\mu$. Si $x$ está muy por
+encima de $\mu$, el gradiente es negativo; si $x$ está por debajo de
+$\mu$, el gradiente es positivo.
+
+## Recursión del algoritmo ULA
+
+La discretización ULA está dada por
+
+$$
+X_n = X_{n-1} + \gamma \nabla \log p^\star(X_{n-1}) + \sqrt{2\gamma}Z_n,
+$$
+
+donde $Z_n \sim N(0,1)$. Para la normal univariada, sustituyendo el
+gradiente anterior, tenemos
+
+$$
+X_n = X_{n-1} - \gamma \frac{X_{n-1}-\mu}{\sigma^2} + \sqrt{2\gamma}Z_n.
+$$
+
+También podemos escribirlo como
+
+$$
+X_n = \left(1 - \frac{\gamma}{\sigma^2}\right)X_{n-1} + \frac{\gamma\mu}{\sigma^2} + \sqrt{2\gamma}Z_n.
+$$
+
+Esta expresión muestra que ULA se comporta como un proceso
+autorregresivo de orden uno. Sin embargo, para $\gamma$ fijo, su
+distribución estacionaria no coincide exactamente con $N(\mu,\sigma^2)$;
+solamente se aproxima a ella cuando $\gamma$ es pequeño.
+
+## Algoritmo MALA para la normal univariada
+
+MALA usa la misma propuesta de Langevin que ULA, pero agrega un paso de
+aceptación o rechazo de tipo Metropolis–Hastings.
+
+Si el estado actual es $X_{n-1}=x$, proponemos
+
+$$
+Y_n = x + \gamma \nabla \log p^\star(x) + \sqrt{2\gamma}Z_n.
+$$
+
+En el caso normal, esto se convierte en
+
+$$
+Y_n = x - \gamma \frac{x-\mu}{\sigma^2} + \sqrt{2\gamma}Z_n.
+$$
+
+La densidad de propuesta es
+
+$$
+q_\gamma(y \mid x) = N\left(y; x - \gamma\frac{x-\mu}{\sigma^2}, 2\gamma\right).
+$$
+
+La probabilidad de aceptación es
+
+$$
+\alpha(x,y) = \min\left\{1, \frac{p^\star(y)q_\gamma(x \mid y)}{p^\star(x)q_\gamma(y \mid x)}\right\}.
+$$
+
+Si la propuesta se acepta, definimos $X_n=Y_n$. Si se rechaza, dejamos
+$X_n=X_{n-1}$.
+
+## Elección de parámetros
+
+Tomaremos una distribución objetivo concreta:
+
+$$
+p^\star(x) = N(2, 1).
+$$
+
+Es decir,
+
+$$
+\mu = 2, \qquad \sigma^2 = 1.
+$$
+
+Esta elección permite comparar fácilmente los histogramas con la
+densidad verdadera.
+
+``` r
+mu <- 2
+sigma2 <- 1
+sigma <- sqrt(sigma2)
+```
+
+## Programación del algoritmo ULA
+
+``` r
+# gradiente del logaritmo de la densidad objetivo normal
+grad_log_normal <- function(x, mu, sigma2) {
+  return(-(x - mu) / sigma2)
+}
+
+# algoritmo ULA
+simular_ula <- function(N, gamma, x0, mu, sigma2) {
+  cadena <- numeric(N)
+  cadena[1] <- x0
+  
+  for (n in 2:N) {
+    cadena[n] <- cadena[n - 1] + 
+      gamma * grad_log_normal(cadena[n - 1], mu, sigma2) + 
+      sqrt(2 * gamma) * rnorm(1)
+  }
+  
+  return(cadena)
+}
+```
+
+## Programación del algoritmo MALA
+
+``` r
+# logaritmo de la densidad objetivo
+log_p_normal <- function(x, mu, sigma) {
+  return(dnorm(x, mean = mu, sd = sigma, log = TRUE))
+}
+
+# logaritmo de la densidad de propuesta q(y | x)
+log_q_mala <- function(y, x, gamma, mu, sigma2) {
+  media_prop <- x + gamma * grad_log_normal(x, mu, sigma2)
+  return(dnorm(y, mean = media_prop, sd = sqrt(2 * gamma), log = TRUE))
+}
+
+# algoritmo MALA
+simular_mala <- function(N, gamma, x0, mu, sigma2) {
+  sigma <- sqrt(sigma2)
+  cadena <- numeric(N)
+  aceptados <- 0
+  cadena[1] <- x0
+  
+  for (n in 2:N) {
+    x_actual <- cadena[n - 1]
+    media_prop <- x_actual + gamma * grad_log_normal(x_actual, mu, sigma2)
+    y <- rnorm(1, mean = media_prop, sd = sqrt(2 * gamma))
+    
+    log_alpha <- log_p_normal(y, mu, sigma) + log_q_mala(x_actual, y, gamma, mu, sigma2) -
+      log_p_normal(x_actual, mu, sigma) - log_q_mala(y, x_actual, gamma, mu, sigma2)
+    
+    # usamos log(runif(1)) para evitar problemas numéricos
+    if (log(runif(1)) < min(0, log_alpha)) {
+      cadena[n] <- y
+      aceptados <- aceptados + 1
+    } else {
+      cadena[n] <- x_actual
+    }
+  }
+  
+  return(list(cadena = cadena, tasa_aceptacion = aceptados / (N - 1)))
+}
+```
+
+## Simulación de ULA y MALA
+
+Usaremos una cadena de longitud $N=20000$ y descartaremos las primeras
+$2000$ iteraciones como periodo de calentamiento o *burn-in*.
+
+``` r
+set.seed(236)
+N <- 20000
+burn_in <- 2000
+x0 <- 10
+
+gamma_mala <- 0.5
+cadena_ula <- simular_ula(N = N, gamma = gamma_mala, x0 = x0, mu = mu, sigma2 = sigma2)
+resultado_mala <- simular_mala(N = N, gamma = gamma_mala, x0 = x0, mu = mu, sigma2 = sigma2)
+cadena_mala <- resultado_mala$cadena
+
+muestra_ula <- cadena_ula[(burn_in + 1):N]
+muestra_mala <- cadena_mala[(burn_in + 1):N]
+
+datos_comparacion <- data.frame(
+  valor = c(muestra_ula, muestra_mala),
+  algoritmo = rep(c("ULA", "MALA"), each = length(muestra_ula))
+)
+
+resultado_mala$tasa_aceptacion
+```
+
+    ## [1] 0.9236462
+
+``` r
+ggplot(datos_comparacion, aes(x = valor)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "gray80", color = "white") +
+  stat_function(fun = dnorm, args = list(mean = mu, sd = sigma), linewidth = 1) +
+  facet_wrap(~ algoritmo) +
+  theme_minimal() +
+  labs(title = expression("Comparación de ULA y MALA contra la densidad verdadera " * N(2,1)),
+       x = "Valor simulado",
+       y = "Densidad")
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
+
+Para este valor de $\gamma$, MALA corrige el sesgo de la discretización
+mediante el paso de aceptación y rechazo. ULA, en cambio, usa
+directamente la discretización y puede presentar una distribución con
+mayor dispersión que la normal objetivo.
+
+## Efecto del tamaño de paso en ULA
+
+Ahora probamos varios valores de $\gamma$ para el algoritmo ULA:
+
+$$
+\gamma \in \{1, 0.5, 0.1, 0.05, 0.01\}.
+$$
+
+``` r
+set.seed(236)
+gammas <- c(1, 0.5, 0.1, 0.05, 0.01)
+lista_ula <- list()
+
+for (gamma in gammas) {
+  cadena_aux <- simular_ula(N = N, gamma = gamma, x0 = x0, mu = mu, sigma2 = sigma2)
+  muestra_aux <- cadena_aux[(burn_in + 1):N]
+  lista_ula[[as.character(gamma)]] <- data.frame(
+    valor = muestra_aux,
+    gamma = paste0("gamma = ", gamma)
+  )
+}
+
+datos_ula_gammas <- do.call(rbind, lista_ula)
+datos_ula_gammas$gamma <- factor(datos_ula_gammas$gamma,
+                                  levels = paste0("gamma = ", gammas))
+```
+
+``` r
+ggplot(datos_ula_gammas, aes(x = valor)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 40, fill = "gray80", color = "white") +
+  stat_function(fun = dnorm, args = list(mean = mu, sd = sigma), linewidth = 1) +
+  facet_wrap(~ gamma) +
+  theme_minimal() +
+  labs(title = "Efecto del tamaño de paso gamma en ULA",
+       subtitle = expression("Comparación con la densidad verdadera " * N(2,1)),
+       x = "Valor simulado",
+       y = "Densidad")
+```
+
+![](Tarea-de-Programacion-III-IV_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+
+Para $\gamma=1$, la cadena ULA se mueve con mucho ruido y la
+distribución resultante es claramente más dispersa que la distribución
+objetivo. Cuando $\gamma$ disminuye, el histograma se acerca más a la
+densidad verdadera $N(2,1)$. Esto ilustra que ULA introduce un sesgo de
+discretización que depende del tamaño de paso.
+
+## Comparación de medias y varianzas empíricas
+
+Para resumir numéricamente los resultados, calculamos la media y la
+varianza empírica de las muestras generadas por ULA para cada valor de
+$\gamma$.
+
+``` r
+resumen_ula <- data.frame(
+  gamma = gammas,
+  media_empirica = numeric(length(gammas)),
+  varianza_empirica = numeric(length(gammas))
+)
+
+for (i in seq_along(gammas)) {
+  muestra_i <- datos_ula_gammas$valor[datos_ula_gammas$gamma == paste0("gamma = ", gammas[i])]
+  resumen_ula$media_empirica[i] <- mean(muestra_i)
+  resumen_ula$varianza_empirica[i] <- var(muestra_i)
+}
+
+resumen_ula
+```
+
+    ##   gamma media_empirica varianza_empirica
+    ## 1  1.00       1.998968         2.0148419
+    ## 2  0.50       1.997660         1.3414374
+    ## 3  0.10       2.003289         1.1327413
+    ## 4  0.05       1.964221         1.0437619
+    ## 5  0.01       2.007991         0.7960325
+
+La media empírica permanece cerca de $\mu=2$, pero la varianza empírica
+se acerca a $\sigma^2=1$ conforme $\gamma$ se hace más pequeño. Este
+comportamiento coincide con la teoría: ULA no tiene exactamente la
+distribución objetivo como distribución estacionaria, pero el error de
+discretización disminuye cuando el tamaño de paso tiende a cero.
+
+------------------------------------------------------------------------
+
+## Referencias
+
+- Rincón, L. (2012). *Introducción a los procesos estocásticos*. Ciudad
+  de México: Facultad de Ciencias, UNAM.
+
+- Richard Durrett and R Durrett. *Essentials of stochastic processes*,
+  volume 1. Springer, 1999.
+
+- Robert, C. P., & Casella, G. (2004). *Monte Carlo Statistical
+  Methods*. Springer.
